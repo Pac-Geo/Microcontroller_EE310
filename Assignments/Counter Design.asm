@@ -6,10 +6,9 @@
 ; MPLAB Version: MPLAB X IDE v6.30
 ; Operating System: Windows 11
 
-; Program Version: V4
+; Program Version: V5
 ; Patch Notes:
-;   V4 Implemented Comentary and refinement along with single case example.
-;   Fixed errors found in display count and Check Switch.
+;   V5 Implements longer delay to visualize decimal switching of the 7segment
 ; Purpose: 
 ;   Implement a counter system using a 7segment display that increments, 
 ;   decrements, or resets the count based on user input from push buttons.  
@@ -56,9 +55,9 @@ REG10       equ 0x12
 REG11       equ 0x13
 REG12       equ 0x14
 
-Inner_loop  equ 10
-Middle_loop equ 5
-Outer_loop  equ 5
+Inner_loop  equ 100
+Middle_loop equ 50
+Outer_loop  equ 50
     
 ;------------------------------------------------------------------------------   
 ; PROGRAM ORGINIZATION
