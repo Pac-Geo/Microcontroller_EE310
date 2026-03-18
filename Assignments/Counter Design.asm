@@ -6,9 +6,12 @@
 ; MPLAB Version: MPLAB X IDE v6.30
 ; Operating System: Windows 11
 
-; Program Version: V1
+; Program Version: V2
 ; Patch Notes:
-;   V1 - Initial version
+;   V2 Implemented set up, and Call functions:
+	;CHECK_SWITCH
+	;COUNT_UP / DOWN / RESET
+	;DELAY
     
 ; Purpose: 
 ;   Implement a counter system using a 7segment display that increments, 
@@ -36,17 +39,40 @@
 processor 18F47K42
 #include <xc.inc>
 #include "AssemblyConfig.inc"
+
+;------------------------------------------------------------------------------
+; DEFENITIONS
+;---------------------
+; if OPERATION = 1 -> COUNTUP
+; if OPERATION = 2 -> COUNTDOWN
+; if OPERATION = 3 -> RESET
+; else -> NOTHING
+    
+;------------------------------------------------------------------------------
+; VARIABLES
+;---------------------
+COUNT       equ 0x10
+OPERATION   equ 0x11
+
+; Delay registers
+REG10       equ 0x12
+REG11       equ 0x13
+REG12       equ 0x14
+
+Inner_loop  equ 100
+Middle_loop equ 50
+Outer_loop  equ 50
     
 ;------------------------------------------------------------------------------   
 ; PROGRAM ORGINIZATION
 ;---------------------
 PSECT absdata,abs,ovrld        ; Do not change
 ORG          0                ;Reset vector
-GOTO        _setup
+GOTO	     START
 
 ORG          0020H           ; Begin assembly at 0020H
 ;------------------------------------------------------------------------------
-; Setup & Main Program
+; SET UP & MAIN PROGRAM
 ;--------------------- 
 START:
     CALL INITIALIZATION
@@ -81,8 +107,36 @@ MAIN_LOOP:
     GOTO MAIN_LOOP
     
 ;------------------------------------------------------------------------------
-; Call Functions
+; CALL FUNCTIONS
 ;-------------------------------------
+INITIALIZATION:
+    ; Clear PORTD
+    BANKSEL PORTD
+    CLRF PORTD
+    BANKSEL LATD
+    CLRF LATD
+    BANKSEL ANSELD
+    CLRF ANSELD
+    BANKSEL TRISD
+    CLRF TRISD      ; RD0?RD7 output
+
+    ; Setup PORTB inputs
+    BANKSEL PORTB
+    CLRF PORTB
+    BANKSEL LATB
+    CLRF LATB
+    BANKSEL ANSELB
+    CLRF ANSELB
+    BANKSEL TRISB
+    MOVLW 0b00000011
+    MOVWF TRISB     ; RB0, RB1 input
+
+    ; Initialize count
+    CLRF COUNT
+    CLRF OPERATION
+
+    RETURN
+    
 DISPLAY_COUNT:
     MOVF COUNT, W
     CALL SEGMENT_TABLE
@@ -101,5 +155,96 @@ SEGMENT_TABLE:
     RETLW 0b00000111 ; 7
     RETLW 0b01111111 ; 8
     RETLW 0b01101111 ; 9
+    
+CHECK_SWITCH:
+    CLRF OPERATION
+
+    ; Check BOTH pressed first
+    BTFSS PORTB, 0
+    GOTO CHECK_A
+    BTFSS PORTB, 1
+    GOTO CHECK_A
+
+    MOVLW 0x03
+    MOVWF OPERATION
+    RETURN
+
+CHECK_A:
+    BTFSS PORTB, 0
+    GOTO CHECK_B
+
+    MOVLW 0x01
+    MOVWF OPERATION
+    RETURN
+
+CHECK_B:
+    BTFSS PORTB, 1
+    GOTO NO_PRESS
+
+    MOVLW 0x02
+    MOVWF OPERATION
+    RETURN
+
+NO_PRESS:
+    CLRF OPERATION
+    RETURN
+    
+COUNT_UP:
+    INCF COUNT, F
+
+    ; wrap 0?9
+    MOVLW 10
+    CPFSLT COUNT     ; skip if COUNT < 10
+    CLRF COUNT
+
+    CALL DISPLAY_COUNT
+    RETURN
+    
+COUNT_DOWN:
+    MOVF COUNT, F
+    BTFSC STATUS, Z
+    GOTO SET_NINE
+
+    DECF COUNT, F
+    CALL DISPLAY_COUNT
+    RETURN
+
+SET_NINE:
+    MOVLW 9
+    MOVWF COUNT
+    CALL DISPLAY_COUNT
+    RETURN
+    
+RESET_COUNT:
+    CLRF COUNT
+    CALL DISPLAY_COUNT
+    RETURN
+
+DO_NOTHING:
+    CALL DISPLAY_COUNT
+    RETURN
+    
+DELAY:
+    MOVLW Inner_loop
+    MOVWF REG10
+    MOVLW Middle_loop
+    MOVWF REG11
+    MOVLW Outer_loop
+    MOVWF REG12
+
+LOOP1:
+    DECF REG10, F
+    BNZ LOOP1
+    MOVLW Inner_loop
+    MOVWF REG10
+
+    DECF REG11, F
+    BNZ LOOP1
+    MOVLW Middle_loop
+    MOVWF REG11
+
+    DECF REG12, F
+    BNZ LOOP1
+    RETURN
     
 END
