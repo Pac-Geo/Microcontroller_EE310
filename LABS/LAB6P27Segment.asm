@@ -17,19 +17,21 @@
 ; Author: Farid Farahmand
     ;Co-Author: Geovani Palomec
 ; Versions:
-;       V2.0: Moved away from Binary to implement 7 segment display
+;       V2.1: Implemented branches to prevent continuous overwriting scans, 
+	    ; rewrote to use LATB only ensuring one column is active at a time, 
+	    ; and added a key display to * ?HI?
 ; Useful links:
 ; Keypad: https://www.circuitbasics.com/how-to-set-up-a-keypad-on-an-arduino/ 
 ; 7Segment: https://www.xlitx.com/datasheet/5011AS.pdf
     ;Key note on 7seg: 
-	;RD0 ? Pin 7 (A)
-	;RD1 ? Pin 6 (B)
-	;RD2 ? Pin 4 (C)
-	;RD3 ? Pin 2 (D)
-	;RD4 ? Pin 1 (E)
-	;RD5 ? Pin 9 (F)
-	;RD6 ? Pin 10 (G)
-	;RD7 ? (optional DP, pin 5 or ignore)
+	;RD0 - Pin 7 (A)
+	;RD1 - Pin 6 (B)
+	;RD2 - Pin 4 (C)
+	;RD3 - Pin 2 (D)
+	;RD4 - Pin 1 (E)
+	;RD5 - Pin 9 (F)
+	;RD6 - Pin 10 (G)
+	;RD7 - (optional DP, pin 5 or ignore)
     
     
 ;---------------------
@@ -39,139 +41,204 @@
 #include <xc.inc>
 
 ;---------------------
-; Program Inputs
-;---------------------
-
-
-;---------------------
-; Definitions
-;---------------------
-
-;---------------------
 ; Program Constants
 ;---------------------
-what_button EQU		20h
-BYTE01	EQU		0xF2		;Data bytes
-BYTE02	EQU		0x32
-REG00	EQU		0x00		;Data Register addresses
-REG01	EQU		0x01
-REG02	EQU		0x02
-REG10	EQU		0x10
+what_button EQU     20h
+BYTE01      EQU     0xF2
+BYTE02      EQU     0x32
+REG00       EQU     0x00
+REG01       EQU     0x01
+REG02       EQU     0x02
+REG10       EQU     0x10
 
 ;---------------------
 ; Program Organization
 ;---------------------
-    PSECT absdata,abs,ovrld        ; Do not change
+    PSECT absdata,abs,ovrld
 
-    ORG          0                ;Reset vector
-    GOTO        _setup
+    ORG     0
+    GOTO    _setup
 
-    ORG          0020H           ; Begin assembly at 0020H
+    ORG     0020H
+
 ;---------------------
 ; Macros
 ;---------------------
- 
- BYTE	MACRO	REGXX
-    LFSR	1,REGXX	    ; 1 represents FSR1
-    MOVFF	POSTDEC1,REG00
-    MOVFF	INDF1,REG00
+BYTE    MACRO   REGXX
+    LFSR    1,REGXX
+    MOVFF   POSTDEC1,REG00
+    MOVFF   INDF1,REG00
 ENDM
 
- ;---------------------
+;---------------------
 ; Setup & Main Program
-;---------------------   
+;---------------------
 _setup:
-    clrf what_button
-    clrf WREG
-    RCALL _setupPortD
-    RCALL _setupPortB
-    clrf PORTB
-
+    clrf    what_button
+    clrf    WREG
+    RCALL   _setupPortD
+    RCALL   _setupPortB
+    clrf    LATB
 
 _main:
-    RCALL _check_keypad
-   ; MOVFF   what_button,PORTD
+    RCALL   _check_keypad
     RCALL   _display_7seg
-;    MOVLW	0xAA
-;    MOVWF	REG10
-;    BYTE	0x10
-    
     GOTO    _main
 
-
 ;-------------------------------------
-; Call Functions
+; Port Setup Functions
 ;-------------------------------------
 _setupPortD:
-    BANKSEL	PORTD ;
-    CLRF	PORTD ;Init PORTA
-    BANKSEL	LATD ;Data Latch
-    CLRF	LATD ;
-    BANKSEL	ANSELD ;
-    CLRF	ANSELD ;digital I/O
-    BANKSEL	TRISD ;
-    MOVLW	0b00000000 ;Set RD[7:1] as outputs
-    MOVWF	TRISD ;and set RD0 as ouput
+    BANKSEL PORTD
+    CLRF    PORTD
+    BANKSEL LATD
+    CLRF    LATD
+    BANKSEL ANSELD
+    CLRF    ANSELD
+    BANKSEL TRISD
+    MOVLW   0b00000000
+    MOVWF   TRISD
     RETURN
 
 _setupPortB:
-    BANKSEL	PORTB ;
-    CLRF	PORTB ;Init PORTB
-    BANKSEL	LATB ;Data Latch
-    CLRF	LATB ;
-    BANKSEL	ANSELB ;
-    CLRF	ANSELB ;digital I/O
-    BANKSEL	TRISB ;
-    MOVLW	0b11111000 ;Set RB0-2 as outputs & RB3-7 as inputs
-    MOVWF	TRISB ;
+    BANKSEL PORTB
+    CLRF    PORTB
+    BANKSEL LATB
+    CLRF    LATB
+    BANKSEL ANSELB
+    CLRF    ANSELB
+    BANKSEL TRISB
+    MOVLW   0b11111000
+    MOVWF   TRISB
     RETURN
 
+;-------------------------------------
+; Keypad Scan Function
+;-------------------------------------
 _check_keypad:
-    movf what_button, w			;	we want to copy our last digit that was pressed into w
-    
-    bsf LATB, 0
-    bsf PORTB, 0			;	lets scan the first column of keys
-    btfsc PORTB, 3			;	has the 1 key been pressed? if yes then
-    movlw 1				;	copy decimal number 01 into w. but if not then continue on.
-    btfsc PORTB, 4			;	has the 4 key been pressed? if yes then
-    movlw 4				;	copy decimal number 04 into w. but if not then continue on.
-    btfsc PORTB, 7			;	has the 7 key been pressed? if yes then
-    movlw 7				;	copy decimal number 07 into w. but if not then continue on.
-    btfsc PORTB, 6			;	has the * key been pressed? if yes then
-    movlw 10				;	copy the decimal number 10 into w. but if not then continue on.
-    bcf PORTB, 0			;	now we have finished scanning the first column of keys
-    
-   bsf LATB,0
-    bsf PORTB, 1			;	let's scan the middle column of keys
-    btfsc PORTB, 3			;	has the 2 key been pressed? if yes then
-    movlw 2				;	copy decimal number 02 into w. but if not then continue on.
-    btfsc PORTB, 4			;	has the 5 key been pressed? if yes then
-    movlw 5				;	copy decimal number 05 into w. but if not then continue on.
-    btfsc PORTB, 7			;	has the 8 key been pressed? if yes then
-    movlw 8				;	copy the decimal number 08 into w. but if not then continue on.
-    btfsc PORTB, 6			;	has the 0 key been pressed? if yes then
-    movlw 0				;	copy decimal number 00 into w. but if not then continue on.
-    bcf PORTB, 1			;	now we have finished scanning the middle column of keys
+    movf    what_button, W      ; keep last good key by default
 
-    bsf LATB, 0
-    bsf PORTB, 2			;	let's scan the last column of keys
-    btfsc PORTB, 3			;	has the 3 key been pressed? if yes then
-    movlw 3				;	copy decimal number 03 into w. but if not then continue on.
-    btfsc PORTB, 4			;	has the 6 key been pressed? if yes then
-    movlw 6				;	copy decimal number 06 into w. but if not then continue on.
-    btfsc PORTB, 7			;	has the 9 key been pressed? if yes then
-    movlw 9				;	copy decimal number 09 into w. but if not then continue on.
-    btfsc PORTB, 6			;	has the # key been pressed? if yes then
-    movlw 11				;	copy the decimal number 11 into w. but if not then continue on.
-    bcf PORTB, 2			;	now we have finished scanning the last column of keys
+    ; -------------------------
+    ; Scan column 1: 1,4,7,*
+    ; -------------------------
+    bcf     LATB, 0
+    bcf     LATB, 1
+    bcf     LATB, 2
+    bsf     LATB, 0
+    nop
+    nop
+    nop
+    nop
 
-    movwf what_button	
-return						
+    btfsc   PORTB, 3
+    bra     key1
+    btfsc   PORTB, 4
+    bra     key4
+    btfsc   PORTB, 7
+    bra     key7
+    btfsc   PORTB, 6
+    bra     keyStar
 
+    ; -------------------------
+    ; Scan column 2: 2,5,8,0
+    ; -------------------------
+    bcf     LATB, 0
+    bcf     LATB, 1
+    bcf     LATB, 2
+    bsf     LATB, 1
+    nop
+    nop
+    nop
+    nop
+
+    btfsc   PORTB, 3
+    bra     key2
+    btfsc   PORTB, 4
+    bra     key5
+    btfsc   PORTB, 7
+    bra     key8
+    btfsc   PORTB, 6
+    bra     key0
+
+    ; -------------------------
+    ; Scan column 3: 3,6,9,#
+    ; -------------------------
+    bcf     LATB, 0
+    bcf     LATB, 1
+    bcf     LATB, 2
+    bsf     LATB, 2
+    nop
+    nop
+    nop
+    nop
+
+    btfsc   PORTB, 3
+    bra     key3
+    btfsc   PORTB, 4
+    bra     key6
+    btfsc   PORTB, 7
+    bra     key9
+    btfsc   PORTB, 6
+    bra     keyHash
+
+    ; no new key found
+    bcf     LATB, 0
+    bcf     LATB, 1
+    bcf     LATB, 2
+    movwf   what_button
+    return
+
+key0:
+    movlw   0
+    bra     key_done
+key1:
+    movlw   1
+    bra     key_done
+key2:
+    movlw   2
+    bra     key_done
+key3:
+    movlw   3
+    bra     key_done
+key4:
+    movlw   4
+    bra     key_done
+key5:
+    movlw   5
+    bra     key_done
+key6:
+    movlw   6
+    bra     key_done
+key7:
+    movlw   7
+    bra     key_done
+key8:
+    movlw   8
+    bra     key_done
+key9:
+    movlw   9
+    bra     key_done
+keyStar:
+    movlw   10
+    bra     key_done
+keyHash:
+    movlw   11
+    bra     key_done
+
+key_done:
+    bcf     LATB, 0
+    bcf     LATB, 1
+    bcf     LATB, 2
+    movwf   what_button
+    return
+
+;-------------------------------------
+; 7-Segment Display Function
+;-------------------------------------
 _display_7seg:
     movf    what_button, W
 
-    ; Common Cathode 7-seg PANIC
+    ; Common Cathode 7-seg
     ; bit0=a bit1=b bit2=c bit3=d bit4=e bit5=f bit6=g
 
     xorlw   0
@@ -203,6 +270,12 @@ _display_7seg:
     movf    what_button, W
     xorlw   9
     bz      disp9
+    movf    what_button, W
+    xorlw   10
+    bz      disp10   
+    movf    what_button, W
+    xorlw   11
+    bz      disp11
 
     ; anything else = blank
     clrf    LATD
@@ -248,4 +321,45 @@ disp9:
     movlw   0b01101111
     movwf   LATD
     return
+    
+dispH:
+    movlw   0b01110110    ; H = b,c,e,f,g
+    movwf   LATD
+    return
+
+dispI:
+    movlw   0b00000110    ; I ? 1 (b,c)
+    movwf   LATD
+    return
+    
+disp10:
+    rcall   dispH
+    rcall   delay
+    rcall   dispI
+    rcall   delay
+    return
+
+disp11:
+    clrf    LATD
+    return
+
+delay:
+    movlw   0xFF
+    
+delay1:
+    movwf   REG00
+    
+delay2:
+    nop
+    nop
+    nop
+    nop
+    nop
+    
+    decfsz  REG00, F
+    bra     delay2
+    decfsz  WREG, F
+    bra     delay1
+    return
+   
     END
