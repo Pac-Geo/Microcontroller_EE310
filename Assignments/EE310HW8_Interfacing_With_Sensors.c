@@ -13,8 +13,8 @@
 // File Dependencies / Libraries: 
 // Compiler: xc8, V6.30
 // Author: Geovani Palomec
-// Versions: 1
-//       V1.1: Implemented Initialaztions and Init.h file
+// Versions: 2
+//       V2: Implemented secrete code and readign RA6,RA7 capability
 // Useful links:
  
 //----------------------------
@@ -22,6 +22,14 @@
 #include "Init.h"
 #include "Func.h"
 //-----------------------------
+
+//----- Secrete Code Set up ---------
+unsigned char SECRET_DIGIT1 = 2;
+unsigned char SECRET_DIGIT2 = 3;
+
+unsigned char entered_digit1 = 0;
+unsigned char entered_digit2 = 0;
+//-----------------------------------
 
 void OSCILLATOR_Initialize(void)
 {
@@ -117,13 +125,186 @@ void SYSTEM_Initialize(void)
     INTERRUPT_Initialize();
 }
 
-int main(void)
+unsigned int adc_read(unsigned char channel)
 {
-    SYSTEM_Initialize();
+    ADPCH = channel;              // choose ADC channel
+    __delay_us(10);               // small settling time
+
+    ADCON0bits.GO = 1;            // start conversion
+    while(ADCON0bits.GO);         // wait until done
+
+    return ((unsigned int)ADRESH << 8) | ADRESL;
+}
+
+#define DARK_THRESHOLD 300   // adjust later if needed
+
+unsigned char is_dark(unsigned char channel)
+{
+    unsigned int val = adc_read(channel);
+
+    if(val < DARK_THRESHOLD)
+        return 1;   // dark
+    else
+        return 0;   // light
+}
+
+void buzzer_double_beep(void)
+{
+    LATDbits.LATD4 = 1;
+    __delay_ms(150);
+    LATDbits.LATD4 = 0;
+    __delay_ms(150);
+
+    LATDbits.LATD4 = 1;
+    __delay_ms(150);
+    LATDbits.LATD4 = 0;
+}
+
+void display_digit(unsigned char digit)
+{
+    // Common cathode:
+    // 1 = ON, 0 = OFF
+
+    // Turn everything OFF first
+    LATDbits.LATD6 = 0;   // A
+    LATDbits.LATD7 = 0;   // B
+    LATEbits.LATE1 = 0;   // C
+    LATCbits.LATC0 = 0;   // D
+    LATCbits.LATC1 = 0;   // E
+    LATDbits.LATD5 = 0;   // F
+    LATBbits.LATB5 = 0;   // G
+
+    LATEbits.LATE0 = 1; // DP / SYS LED always ON
+
+    switch(digit)
+    {
+        case 1:
+            LATDbits.LATD7 = 1;   // B
+            LATEbits.LATE1 = 1;   // C
+            break;
+
+        case 2:
+            LATDbits.LATD6 = 1;   // A
+            LATDbits.LATD7 = 1;   // B
+            LATCbits.LATC0 = 1;   // D
+            LATCbits.LATC1 = 1;   // E
+            LATBbits.LATB5 = 1;   // G
+            break;
+
+        case 3:
+            LATDbits.LATD6 = 1;   // A
+            LATDbits.LATD7 = 1;   // B
+            LATEbits.LATE1 = 1;   // C
+            LATCbits.LATC0 = 1;   // D
+            LATBbits.LATB5 = 1;   // G
+            break;
+
+        case 4:
+            LATDbits.LATD7 = 1;   // B
+            LATEbits.LATE1 = 1;   // C
+            LATDbits.LATD5 = 1;   // F
+            LATBbits.LATB5 = 1;   // G
+            break;
+
+        default:
+            break;
+    }
+}
+
+unsigned char read_digit_PR1(void)
+{
+    unsigned char count = 0;
+    unsigned char prev_dark = 0;
+    unsigned int timeout = 0;
 
     while(1)
     {
-        
+        unsigned char now_dark = is_dark(0x06);   // RA6 / AN6
+
+        // count one new cover event
+        if((now_dark == 1) && (prev_dark == 0))
+        {
+            if(count < 4)
+            {
+                count++;
+            }
+            timeout = 0;
+        }
+
+        // once at least one cover happened, wait for no activity
+        if(count > 0)
+        {
+            __delay_ms(50);
+            timeout += 50;
+
+            if(timeout >= 1500)
+            {
+                display_digit(count);
+                buzzer_double_beep();
+                return count;
+            }
+        }
+        else
+        {
+            __delay_ms(50);
+        }
+
+        prev_dark = now_dark;
+    }
+}
+
+unsigned char read_digit_PR2(void)
+{
+    unsigned char count = 0;
+    unsigned char prev_dark = 0;
+    unsigned int timeout = 0;
+
+    while(1)
+    {
+        unsigned char now_dark = is_dark(0x07);   // RA7 / AN7
+
+        // count one new cover event
+        if((now_dark == 1) && (prev_dark == 0))
+        {
+            if(count < 4)
+            {
+                count++;
+            }
+            timeout = 0;
+        }
+
+        // once at least one cover happened, wait for no activity
+        if(count > 0)
+        {
+            __delay_ms(50);
+            timeout += 50;
+
+            if(timeout >= 1500)
+            {
+                display_digit(count);
+                buzzer_double_beep();
+                return count;
+            }
+        }
+        else
+        {
+            __delay_ms(50);
+        }
+
+        prev_dark = now_dark;
+    }
+}
+
+int main(void)
+{
+    SYSTEM_Initialize();
+    display_digit(0);
+    
+    while(1)
+    {
+        entered_digit1 = read_digit_PR1();
+        entered_digit2 = read_digit_PR2();
+       
     }
 
     return 0;
