@@ -107,22 +107,21 @@ void __interrupt(irq(IRQ_IOC), base(8)) ISR_IOC(void) // this ISR runs immediate
         SystemState = Emergency_Pressed;    // forces the program state into the emergency condition
 
         // The relay is switched ON and OFF here to produce the emergency buzzer pattern.
-        for (uint8_t i = 0; i < 2; i++)     // first group of emergency pulses
+        for (uint8_t i = 0; i < 2; i++) 
         {
-            RELAY_On();                     // energizes the relay so the buzzer sounds
-            __delay_ms(150);                // keeps the buzzer active long enough to hear the first tone
-            RELAY_Off();                    // silences the buzzer between tones
-            __delay_ms(100);                // creates spacing so the sound pattern is distinct
+            CONF_BUZZER_On();
+            __delay_ms(150);
+            CONF_BUZZER_Off();
+            __delay_ms(100);
         }
 
         __delay_ms(250);                    // larger pause between the first and second melody groups
 
-        for (uint8_t i = 0; i < 1; i++)     // second group of emergency pulses
-        {
-            RELAY_On();                     // turns the buzzer back on for the second part of the pattern
-            __delay_ms(350);                // makes these tones longer than the first group
-            RELAY_Off();                    // turns the buzzer off again
-            __delay_ms(100);                // leaves a short gap before the next pulse
+        for (uint8_t i = 0; i < 1; i++) {
+            CONF_BUZZER_On();
+            __delay_ms(350);
+            CONF_BUZZER_Off();
+            __delay_ms(100);
         }
     }
 }
