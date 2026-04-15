@@ -102,7 +102,8 @@ void __interrupt(irq(IRQ_IOC), base(8)) ISR_IOC(void) // this ISR runs immediate
     {
         IOCBFbits.IOCBF0 = 0;               // clears the RB0-specific interrupt flag so the same interrupt can be detected again later
         PIR0bits.IOCIF = 0;                 // clears the global IOC interrupt flag to complete interrupt servicing
-
+        RELAY_Off();
+        
         Check_Emergency_SW = 1;             // tells the main loop that an emergency button press happened
         SystemState = Emergency_Pressed;    // forces the program state into the emergency condition
 
@@ -462,15 +463,18 @@ void Process_System(void)                   // controls the overall behavior by 
         }
     }
 }
-
 /* =========================
    ACTION HANDLERS
    ========================= */
 
-void Handle_CorrectCode(void)                // runs when the correct code is entered
-{
+void Handle_CorrectCode(void) {
     RELAY_On();
-    DelayMs_Blocking(UNLOCK_ON_MS);
+
+    for (uint16_t i = 0; i < UNLOCK_ON_MS; i++) {
+        if (Check_Emergency_SW) break;
+        __delay_ms(1);
+    }
+
     RELAY_Off();
     SEG_Clear();
 }
