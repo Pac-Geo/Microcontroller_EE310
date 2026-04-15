@@ -470,20 +470,15 @@ void Process_System(void)                   // controls the overall behavior by 
 
 void Handle_CorrectCode(void)                // runs when the correct code is entered
 {
-    /*
-     * In this version, the correct code does not activate the buzzer.
-     * The display is simply cleared and the system resets afterwards.
-     */
-    SEG_Clear();                             // removes the last entered digit so the display returns to a neutral state
+    RELAY_On();
+    DelayMs_Blocking(UNLOCK_ON_MS);
+    RELAY_Off();
+    SEG_Clear();
 }
 
 void Handle_WrongCode(void) 
 {
-    RELAY_On();
     Beep_WrongConfirm();
-    DelayMs_Blocking(WRONG_CODE_ON_MS);
-    RELAY_Off();
-
     SEG_Clear();
 }
 
