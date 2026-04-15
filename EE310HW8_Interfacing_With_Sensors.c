@@ -249,6 +249,13 @@ void Beep_ConfirmTwice(void)
     }
 }
 
+void Beep_WrongConfirm(void) 
+{
+    CONF_BUZZER_On();
+    DelayMs_Blocking(WRONG_CONFIRM_BUZZ_MS);
+    CONF_BUZZER_Off();
+}
+
 void Seg7_Display(uint8_t digit)            // sends one decimal digit to the 7-segment display
 {
     uint8_t pattern = 0x00;                 // starts with all segments off until a valid digit pattern is selected
@@ -470,13 +477,14 @@ void Handle_CorrectCode(void)                // runs when the correct code is en
     SEG_Clear();                             // removes the last entered digit so the display returns to a neutral state
 }
 
-void Handle_WrongCode(void)                  // runs when the entered code is incorrect
+void Handle_WrongCode(void) 
 {
-    RELAY_On();                              // turns on the relay so the buzzer receives power
-    DelayMs_Blocking(WRONG_CODE_ON_MS);      // keeps the buzzer active long enough for the user to clearly hear the warning
-    RELAY_Off();                             // turns the buzzer back off after the warning duration ends
+    RELAY_On();
+    Beep_WrongConfirm();
+    DelayMs_Blocking(WRONG_CODE_ON_MS);
+    RELAY_Off();
 
-    SEG_Clear();                             // clears the display so the next attempt starts without leftover numbers
+    SEG_Clear();
 }
 
 void EmergencyOn(void)                       // runs after the interrupt-driven emergency behavior has finished
