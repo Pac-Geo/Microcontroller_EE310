@@ -1,311 +1,498 @@
 //---------------------------------
 // Title: Interfacing with Sensors
 //---------------------------------
-
-// Program Details: In C programming language
-// The purpose of this program is to read from sensors and control actuators
-    
-// Inputs: RA6, RA7, RB0
-// Outputs: RA0-RA4, RB5, RC0-RC1, RD4-RD7, RE0-RE1
-// Setup: The Curiosity Board
-
-// Date: April 13, 2026
-// File Dependencies / Libraries: 
-// Compiler: xc8, V6.30
 // Author: Geovani Palomec
-// Versions: 2
-//       V2: Implemented secrete code and readign RA6,RA7 capability
-// Useful links:
+// Date: April 15, 2026
+// Versions: 3
+//       V3: Rewrote entire code to ensure proper hardware operations
+// -----------------------------------------------------------
+// Setup:   PIC18F47K42 Curiosity Board
+// Compiler: xc8, V6.30
+// File Dependencies / Libraries: 
+//       Config.h, Init.h, Func.h, xc8.h, stdint.h, stdbool.h
+// ------------------------------------------------------------
  
-//----------------------------
+// Purpose:
+//      This program controls a motor via the sensing interfaces using a
+//      PIC18F47K42 Curiosity Board.
+//          
+// 1. When the system is enabled (power is on), DP LED(SYS_LED) is on.
+// 2. The program contains a pre-selected code called the SECRET_CODE  
+// 3. The system operates using two photoresistors (PR1 and PR2) switches.  
+// 4. When the system is enabled, the user is be able to enter a SECRET_CODE 
+//    using the touchless switches by covering the photoresistors.
+//         - A two beep mechanism lets the user know that the inputs are entered
+// 5. If the entered SECRET_CODE is correct, then the motor is turned on. 
+// 6. If the entered SECRET_CODE is incorrect, the buzzer is turned on. 
+// 7. The system has an Emergency switch which is used as an interrupt. 
+//    If the Interrupt is enabled, the buzzer makes a distinct melody noise 
+//         - The interrupt signal stops the main program when it is asserted. 
+// 8. The system has one seven-segment display. Everytime a digit is entered, 
+//    meaning a number is entered using the touchless switch PRx, 
+//    then the number is displayed.  
+// 9. The program has THREE specific header files. 
+//      - One including all the configuration words, 
+//      - one including all the initialization values, 
+//      - one including all your functions.
+// Inputs:
+// RA1 : PR1 touchless sensor input
+// RA2 : PR2 touchless sensor input
+// RB0 : Emergency switch input
+//
+// Outputs:
+//RA0      : System LED
+// RB1      : Relay module control
+// RD0-RD6  : 7-segment display outputs
+
+
 #include "Config.h"
 #include "Init.h"
 #include "Func.h"
-//-----------------------------
 
-//----- Secrete Code Set up ---------
-unsigned char SECRET_DIGIT1 = 2;
-unsigned char SECRET_DIGIT2 = 3;
+// -----------------------------------
+//   GLOBAL VARIABLES
+// -----------------------------------
 
-unsigned char entered_digit1 = 0;
-unsigned char entered_digit2 = 0;
-//-----------------------------------
+volatile uint8_t Check_Emergency_SW = 0; 
 
-void OSCILLATOR_Initialize(void)
+uint8_t PR1_Count = 0;                   // tracks how many times PR1's activate
+uint8_t PR2_Count = 0;                   // tracks how many times PR2's activate
+
+uint16_t PR1_DONE = 0;                   
+uint16_t PR2_DONE = 0;                   
+
+uint8_t PR1_Debounce = 0;                
+uint8_t PR2_Debounce = 0;                
+
+bool PR1Prev = false;                    
+bool PR2Prev = false;                  
+
+system_state_t SystemState = waitFor_PR1; 
+
+/* ---------------------------------
+   7-SEGMENT
+   --------------------------------- */
+
+static const uint8_t Seg7_Digits[10] =
 {
+    0x3F,  //  display  0
+    0x06,  // display  1
+    0x5B,  // display  2
+    0x4F,  //display  3
+    0x66,  // display  4
+    0x6D,  //  display  5
+    0x7D,  //  display  6
+    0x07,  // display  7
+    0x7F,  // display  8
+    0x6F   //  display  9
+};
 
-    OSCCON1 = 0x60;   // NOSC = HFINTOSC, NDIV = 1
-    OSCFRQ  = 0x02;   // HFINTOSC = 4 MHz
-    OSCEN   = 0x00;
+/* ------------------------------
+   INTERRUPT SERVICE ROUTINE
+   Emergency switch on RB0
+   ------------------------------- */
+
+void __interrupt(irq(IRQ_IOC), base(8)) ISR_IOC(void)
+{
+    if (PIR0bits.IOCIF && IOCBFbits.IOCBF0) // RB0 interrupt-on-change source
+    {
+        IOCBFbits.IOCBF0 = 0;               // clears the RB0
+        PIR0bits.IOCIF = 0;                 // clears the global IOC interrupt
+        RELAY_Off();
+        
+        Check_Emergency_SW = 1;             // emergency button press happened
+        SystemState = Emergency_Pressed;    // forces emergency condition
+
+        for (uint8_t i = 0; i < 2; i++) 
+        {
+            CONF_BUZZER_On();
+            __delay_ms(150);
+            CONF_BUZZER_Off();
+            __delay_ms(100);
+        }
+
+        __delay_ms(250);                    
+
+        for (uint8_t i = 0; i < 1; i++) {
+            CONF_BUZZER_On();
+            __delay_ms(350);
+            CONF_BUZZER_Off();
+            __delay_ms(100);
+        }
+    }
 }
 
-void GPIO_Initialize(void)
+/* -------------------------------
+   MAIN
+   ----------------------------------- */
+
+void main(void)                             // program starts here after reset
 {
-    // -------- Latch defaults --------
+    SYSTEM_Initialize();                    
+    Reset_To_Start();                       // clears system values
+    SYS_LED_On();                           // turns on the status LED 
+
+    while (1)                               // runs forever
+    {
+        if (Check_Emergency_SW)             
+        {
+            EmergencyOn();                  // resets the program 
+            continue;                       //
+        }
+
+        Update_SensorsAndCounts();          // reads the photoresistors
+        Process_System();                   // checks the current state 
+
+        __delay_ms(LOOP_DELAY_MS);          
+    }
+}
+
+/* --------------------------
+   INITIALIZATION
+   ------------------------------- */
+void SYSTEM_Initialize(void)
+{
+    GPIO_Initialize();
+    Emergency_Initialize();
+
+    RELAY_Off();
+    CONF_BUZZER_Off();
+    SEG_Clear();
+}
+
+void GPIO_Initialize(void) {
+    ANSELA = 0x00;
+    ANSELB = 0x00;
+    ANSELC = 0x00;
+    ANSELD = 0x00;
+
     LATA = 0x00;
     LATB = 0x00;
     LATC = 0x00;
     LATD = 0x00;
-    LATE = 0x00;
 
-    // -------- PORT A Setup --------
-    // RA0 = Relay Signal         -> output
-    // RA1 = Stepper IN4          -> output
-    // RA2 = Stepper IN3          -> output
-    // RA3 = Stepper IN2          -> output
-    // RA4 = Stepper IN1          -> output
-    // RA6 = PhotoResistor1       -> input
-    // RA7 = PhotoResistor2       -> input
-    TRISA = 0b11000000;
-    
-    // -------- PORT B Setup --------
-    // RB0 = Emergency SW         -> input
-    // RB5 = 7seg G               -> output
-    TRISB = 0b00000001;
+    LATBbits.LATB2 = 0;
 
-    // -------- PORT C Setup --------
-    // RC0 = 7seg D               -> output
-    // RC1 = 7seg E               -> output
-    TRISC = 0b00000000;
+    SYS_LED_TRIS = 0;
+    PR1_TRIS = 1;
+    PR2_TRIS = 1;
+    EMG_SW_TRIS = 1;
+    RELAY_TRIS = 0;
+    CONF_BUZZER_TRIS = 0;
+    SEG_PORT_TRIS = 0x00;
 
-    // -------- PORT D Setup --------
-    // RD4 = Buzzer               -> output
-    // RD5 = 7seg F               -> output
-    // RD6 = 7seg A               -> output
-    // RD7 = 7seg B               -> output
-    TRISD = 0b00000000;
-    
-    // -------- PORT E Setup --------
-    // RE0 = 7seg DP (SYS)
-    // RE1 = 7seg C
-    TRISE = 0b00000000;
-
-    // ---------- ADC ----------
-    // RA6, RA7 = analog
-    ANSELA = 0b11000000;
-
-    // --------- Digital --------
-    ANSELB = 0x00;
-    ANSELC = 0x00;
-    ANSELD = 0x00;
-    ANSELE = 0x00;
+    WPUBbits.WPUB0 = 1;
 }
 
-void ADC_Initialize(void)
+void Emergency_Initialize(void)             // configures interrupt behaviors
 {
-    //Turn on ADC + set it to read voltages from 0?5V safely
-    // Right justified result
-    ADCON0 = 0x00;   //Resets ADC control settings  
-    ADCON1 = 0x00;   // default reference = Vcc/GND
-    ADCON2 = 0x00;
-    
-    // ADC enable
-    ADCLK  = 0x3F;   // Set ADC clock speed
-    ADREF  = 0x00;   // Vcc(5v)/GND(0v) as references
-    ADCON0bits.ADON = 1; //Activates ADC
+    IOCBNbits.IOCBN0 = 1;   // interrupt when RB0 goes from HIGH to LOW
+    IOCBPbits.IOCBP0 = 0;   // disables rising-edge interrupt
+
+    IOCBFbits.IOCBF0 = 0;                   // clears old interrupt flag
+    PIR0bits.IOCIF = 0;                     // clears global interrupt
+
+    PIE0bits.IOCIE = 1;                     
+
+    INTCON0bits.GIEH = 1;                  
+    INTCON0bits.GIEL = 1;                  
 }
 
-void INTERRUPT_Initialize(void)
+/* -------------------------------
+   OUTPUT FUNCTIONS
+   ---------------------------------- */
+
+void SYS_LED_On(void)                       // turns on the system LED (DP)
 {
-    INTCON0bits.GIE = 0;
-    INTCON0bits.IPEN = 0;
-
-    PIR1bits.INT0IF = 0;    // clear INT0 flag
-    INTCON0bits.INT0EDG = 1;     // rising edge
-    PIE1bits.INT0IE = 1;    // enable INT0
-
-    INTCON0bits.GIE = 1;
+    SYS_LED_LAT = 1;                       
 }
 
-void SYSTEM_Initialize(void)
+void SYS_LED_Off(void)                      // turns off the system LED
 {
-    OSCILLATOR_Initialize();
-    GPIO_Initialize();
-    ADC_Initialize();
-    INTERRUPT_Initialize();
+    SYS_LED_LAT = 0;                        
 }
 
-unsigned int adc_read(unsigned char channel)
+void RELAY_On(void)                         // activates the relay module
 {
-    ADPCH = channel;              // choose ADC channel
-    __delay_us(10);               // small settling time
-
-    ADCON0bits.GO = 1;            // start conversion
-    while(ADCON0bits.GO);         // wait until done
-
-    return ((unsigned int)ADRESH << 8) | ADRESL;
+    RELAY_LAT = 0;                          // active low, 0 active
 }
 
-#define DARK_THRESHOLD 300   // adjust later if needed
-
-unsigned char is_dark(unsigned char channel)
+void RELAY_Off(void)                        // deactivates the relay module
 {
-    unsigned int val = adc_read(channel);
+    RELAY_LAT = 1;                          // active low , 1 inactive 
 
-    if(val < DARK_THRESHOLD)
-        return 1;   // dark
-    else
-        return 0;   // light
+}
+void CONF_BUZZER_On(void)
+{
+    CONF_BUZZER_LAT = 1;
 }
 
-void buzzer_double_beep(void)
+void CONF_BUZZER_Off(void)
 {
-    LATDbits.LATD4 = 1;
-    __delay_ms(150);
-    LATDbits.LATD4 = 0;
-    __delay_ms(150);
-
-    LATDbits.LATD4 = 1;
-    __delay_ms(150);
-    LATDbits.LATD4 = 0;
+    CONF_BUZZER_LAT = 0;
 }
 
-void display_digit(unsigned char digit)
+void Beep_ConfirmTwice(void)
 {
-    // Common cathode:
-    // 1 = ON, 0 = OFF
-
-    // Turn everything OFF first
-    LATDbits.LATD6 = 0;   // A
-    LATDbits.LATD7 = 0;   // B
-    LATEbits.LATE1 = 0;   // C
-    LATCbits.LATC0 = 0;   // D
-    LATCbits.LATC1 = 0;   // E
-    LATDbits.LATD5 = 0;   // F
-    LATBbits.LATB5 = 0;   // G
-
-    LATEbits.LATE0 = 1; // DP / SYS LED always ON
-
-    switch(digit)
+    for (uint8_t i = 0; i < CONF_BEEP_COUNT; i++)
     {
-        case 1:
-            LATDbits.LATD7 = 1;   // B
-            LATEbits.LATE1 = 1;   // C
-            break;
-
-        case 2:
-            LATDbits.LATD6 = 1;   // A
-            LATDbits.LATD7 = 1;   // B
-            LATCbits.LATC0 = 1;   // D
-            LATCbits.LATC1 = 1;   // E
-            LATBbits.LATB5 = 1;   // G
-            break;
-
-        case 3:
-            LATDbits.LATD6 = 1;   // A
-            LATDbits.LATD7 = 1;   // B
-            LATEbits.LATE1 = 1;   // C
-            LATCbits.LATC0 = 1;   // D
-            LATBbits.LATB5 = 1;   // G
-            break;
-
-        case 4:
-            LATDbits.LATD7 = 1;   // B
-            LATEbits.LATE1 = 1;   // C
-            LATDbits.LATD5 = 1;   // F
-            LATBbits.LATB5 = 1;   // G
-            break;
-
-        default:
-            break;
+        CONF_BUZZER_On();
+        DelayMs_Blocking(CONF_BEEP_ON_MS);
+        CONF_BUZZER_Off();
+        DelayMs_Blocking(CONF_BEEP_OFF_MS);
     }
 }
 
-unsigned char read_digit_PR1(void)
+void Beep_WrongConfirm(void) 
 {
-    unsigned char count = 0;
-    unsigned char prev_dark = 0;
-    unsigned int timeout = 0;
-
-    while(1)
-    {
-        unsigned char now_dark = is_dark(0x06);   // RA6 / AN6
-
-        // count one new cover event
-        if((now_dark == 1) && (prev_dark == 0))
-        {
-            if(count < 4)
-            {
-                count++;
-            }
-            timeout = 0;
-        }
-
-        // once at least one cover happened, wait for no activity
-        if(count > 0)
-        {
-            __delay_ms(50);
-            timeout += 50;
-
-            if(timeout >= 1500)
-            {
-                display_digit(count);
-                buzzer_double_beep();
-                return count;
-            }
-        }
-        else
-        {
-            __delay_ms(50);
-        }
-
-        prev_dark = now_dark;
-    }
+    CONF_BUZZER_On();
+    DelayMs_Blocking(WRONG_CONFIRM_BUZZ_MS);
+    CONF_BUZZER_Off();
 }
 
-unsigned char read_digit_PR2(void)
+void Seg7_Display(uint8_t digit)            
 {
-    unsigned char count = 0;
-    unsigned char prev_dark = 0;
-    unsigned int timeout = 0;
+    uint8_t pattern = 0x00;                 // start with all segments off 
 
-    while(1)
+    if (digit <= 9U)                       
     {
-        unsigned char now_dark = is_dark(0x07);   // RA7 / AN7
-
-        // count one new cover event
-        if((now_dark == 1) && (prev_dark == 0))
-        {
-            if(count < 4)
-            {
-                count++;
-            }
-            timeout = 0;
-        }
-
-        // once at least one cover happened, wait for no activity
-        if(count > 0)
-        {
-            __delay_ms(50);
-            timeout += 50;
-
-            if(timeout >= 1500)
-            {
-                display_digit(count);
-                buzzer_double_beep();
-                return count;
-            }
-        }
-        else
-        {
-            __delay_ms(50);
-        }
-
-        prev_dark = now_dark;
+        pattern = Seg7_Digits[digit];       
     }
+
+    SEG_PORT_LAT = pattern;                 
 }
 
-int main(void)
+void SEG_Clear(void)                        // clears 7-segment display
 {
-    SYSTEM_Initialize();
-    display_digit(0);
-    
-    while(1)
+
+    SEG_PORT_LAT = 0x00;                   
+}
+
+/* -----------------------------
+   INPUT FUNCTIONS
+   ------------------------- */
+
+bool PR1_IsActive(void)                     // checks whether PR1 is triggered
+{
+    return (PR1_PORT == 0);                 // true when PR1 reads LO 
+}
+
+bool PR2_IsActive(void)                     // checks whether PR2 is triggered
+{
+    return (PR2_PORT == 0);                 //  true when PR2 reads LO
+}
+
+/* ----------------------------------
+   RESET
+   -------------------------------- */
+
+void Reset_InputData(void)                  // clears all entry values 
+{
+    PR1_Count = 0;                          
+    PR2_Count = 0;                          
+
+    PR1_DONE = 0;                           
+    PR2_DONE = 0;                           
+
+    PR1_Debounce = 0;                       
+    PR2_Debounce = 0;                       
+
+    PR1Prev = false;                        // resets the remembered PR1 
+    PR2Prev = false;                        // resets the remembered PR2 
+}
+
+void Reset_To_Start(void) 
+{
+    Reset_InputData();
+    SystemState = waitFor_PR1;
+    SEG_Clear();
+    RELAY_Off();
+    CONF_BUZZER_Off();
+}
+
+/* ---------------------------------
+   SENSOR LOGIC
+   --------------------------------- */
+
+void Update_SensorsAndCounts(void)          // reads the sensors PR! & PR2
+{
+    bool pr1_active = PR1_IsActive();       // gets condition of PR1
+    bool pr2_active = PR2_IsActive();       // gets condition of PR2
+
+    if (PR1_Debounce > 0)                  
     {
-        entered_digit1 = read_digit_PR1();
-        entered_digit2 = read_digit_PR2();
-       
+        PR1_Debounce--;                     
     }
 
-    return 0;
+    if (PR2_Debounce > 0)                   
+    {
+        PR2_Debounce--;                     
+    }
+
+    switch (SystemState)                    
+    {
+        case waitFor_PR1:                   
+        {
+            if (pr1_active && !PR1Prev && (PR1_Debounce == 0)) //counts PR1 edge
+            {
+                if (PR1_Count < 4U)         // stops at allowed range
+                {
+                    PR1_Count++;            
+                    Seg7_Display(PR1_Count);// shows first-digit count
+                }
+
+                PR1_DONE = 0;               // resets the timeout counter 
+                PR1_Debounce = DEBOUNCE_TICKS; // starts the debounce delay 
+            }
+
+            if (PR1_Count > 0U)             
+            {
+                PR1_DONE++;                 
+            }
+
+            break;                          
+        }
+
+        case STATE_WAIT_PR2:                
+        {
+            if (pr2_active && !PR2Prev && (PR2_Debounce == 0)) //counts PR2 edge
+            {
+                if (PR2_Count < 4U)         // stops at allowed range
+                {
+                    PR2_Count++;            
+                    Seg7_Display(PR2_Count);// shows second-digit count 
+                }
+
+                PR2_DONE = 0;               // resets the second-input timeout
+                PR2_Debounce = DEBOUNCE_TICKS; // starts the debounce timer 
+            }
+
+            if (PR2_Count > 0U)             
+            {
+                PR2_DONE++;                 
+            }
+
+            break;                         
+        }
+
+        default:                           
+            break;
+    }
+
+    PR1Prev = pr1_active;                   // stores current PR1 condition 
+    PR2Prev = pr2_active;                   // stores current PR2 condition 
+}
+
+/* -------------------------------
+   STATE MACHINE
+   ------------------------- */
+
+void Process_System(void)                   
+{
+    switch (SystemState)                    
+    {
+        case waitFor_PR1:                  
+        {
+            /*
+             * The first number is considered complete only after
+             * PR1 has been triggered at least once and then stays idle
+             * long enough to reach the timeout.
+             */
+            if ((PR1_Count > 0U) && (PR1_DONE >= DIGIT_DONE_TIMEOUT_TICKS)) 
+            {
+                Beep_ConfirmTwice();
+                SystemState = STATE_WAIT_PR2;
+                PR2_DONE = 0;                 // clears PR2 timeout counter
+            }
+            break;                            
+        }
+
+        case STATE_WAIT_PR2:                  
+        {
+            if ((PR2_Count > 0U) && (PR2_DONE >= DIGIT_DONE_TIMEOUT_TICKS)) 
+            {
+                Beep_ConfirmTwice();
+                SystemState = STATE_CHECK_CODE; 
+            }
+            break;                           
+        }
+
+        case STATE_CHECK_CODE:          // compare against stored secret code
+        {
+            if ((PR1_Count == SECRET_CODE_PR1) && (PR2_Count == SECRET_CODE_PR2)) 
+            {
+                SystemState = Correct_Secret_Code; // marks code as correct 
+            }
+            else
+            {
+                SystemState = Wrong_Secret_Code;// mismatch sends to wrong code
+            }
+            break;                                 
+        }
+
+        case Correct_Secret_Code:                
+        {
+            Handle_CorrectCode();                 // success
+            Reset_To_Start();                     // clears everything 
+            break;                               
+        }
+
+        case Wrong_Secret_Code:                   
+        {
+            Handle_WrongCode();                   //failure
+            Reset_To_Start();                     // resets all values 
+            break;                                
+        }
+
+        case Emergency_Pressed:                   
+        {
+            EmergencyOn();                        
+            break;                                
+        }
+
+        default:                                  
+        {
+            Reset_To_Start();                    
+            break;                              
+        }
+    }
+}
+/* ------------------------------------
+   ACTIONS
+   ---------------------------- */
+
+void Handle_CorrectCode(void) {
+    RELAY_On();
+
+    for (uint16_t i = 0; i < UNLOCK_ON_MS; i++) {
+        if (Check_Emergency_SW) break;
+        __delay_ms(1);
+    }
+
+    RELAY_Off();
+    SEG_Clear();
+}
+
+void Handle_WrongCode(void) 
+{
+    Beep_WrongConfirm();
+    SEG_Clear();
+}
+
+void EmergencyOn(void)                       // runs after interrupt emergency 
+{
+    Check_Emergency_SW = 0;                  // clears the emergency flag 
+    Reset_To_Start();                        // resets entire program 
+}
+
+/* ---------------------------------
+   DELAY
+   --------------------------------- */
+
+void DelayMs_Blocking(uint16_t ms)           
+{
+    while (ms--)                           
+    {
+        __delay_ms(1);                      
+    }
 }

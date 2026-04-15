@@ -1,3 +1,17 @@
+/* 
+ * File:   Config.h
+ * Author: 
+ *
+ * 
+ */
+
+#ifndef My_C_Config_H
+#define My_C_Config_H
+
+// PIC18F47K42 Configuration Bit Settings
+
+// 'C' source line config statements
+
 // CONFIG1L
 #pragma config FEXTOSC = LP     // External Oscillator Selection (LP (crystal oscillator) optimized for 32.768 kHz; PFM set to low power)
 #pragma config RSTOSC = EXTOSC  // Reset Oscillator Selection (EXTOSC operating per FEXTOSC bits (device manufacturing default))
@@ -47,3 +61,13 @@
 
 // CONFIG5L
 #pragma config CP = OFF         // PFM and Data EEPROM Code Protection bit (PFM and Data EEPROM code protection disabled)
+
+#include <xc.h> // must have this
+//#include "../../../../../Program Files/Microchip/xc8/v2.40/pic/include/proc/pic18f46k42.h"
+//#include "C:/Program Files/Microchip/xc8/v2.40/pic/include/proc/pic18f46k42.h"
+//#include "C:\Program Files\Microchip\xc8\v2.40\pic\include\proc\pic18f46k42"
+
+#define _XTAL_FREQ 4000000                 // Fosc  frequency for _delay()  library
+#define FCY    _XTAL_FREQ/4
+
+#endif
