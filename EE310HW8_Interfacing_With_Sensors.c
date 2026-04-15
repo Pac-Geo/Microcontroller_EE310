@@ -156,13 +156,14 @@ void main(void)                             // program starts here after reset
    INITIALIZATION
    ========================= */
 
-void SYSTEM_Initialize(void)                // prepares the whole system before the main loop begins
+void SYSTEM_Initialize(void)
 {
-    GPIO_Initialize();                      // sets up pin directions and ensures the used pins behave digitally
-    Emergency_Initialize();                 // enables the emergency switch interrupt system
+    GPIO_Initialize();
+    Emergency_Initialize();
 
-    RELAY_Off();                            // starts with relay OFF so the buzzer does not activate immediately at power-up
-    SEG_Clear();                            // clears the 7-segment so no random digit appears at startup
+    RELAY_Off();
+    CONF_BUZZER_Off();
+    SEG_Clear();
 }
 
 void GPIO_Initialize(void) {
@@ -175,6 +176,8 @@ void GPIO_Initialize(void) {
     LATB = 0x00;
     LATC = 0x00;
     LATD = 0x00;
+
+    LATBbits.LATB2 = 0;
 
     SYS_LED_TRIS = 0;
     PR1_TRIS = 1;
@@ -224,6 +227,26 @@ void RELAY_Off(void)                        // deactivates the relay module
 {
     RELAY_LAT = 1;                          // for active-low hardware, writing 1 returns the relay to its inactive state
 
+}
+void CONF_BUZZER_On(void)
+{
+    CONF_BUZZER_LAT = 1;
+}
+
+void CONF_BUZZER_Off(void)
+{
+    CONF_BUZZER_LAT = 0;
+}
+
+void Beep_ConfirmTwice(void)
+{
+    for (uint8_t i = 0; i < CONF_BEEP_COUNT; i++)
+    {
+        CONF_BUZZER_On();
+        DelayMs_Blocking(CONF_BEEP_ON_MS);
+        CONF_BUZZER_Off();
+        DelayMs_Blocking(CONF_BEEP_OFF_MS);
+    }
 }
 
 void Seg7_Display(uint8_t digit)            // sends one decimal digit to the 7-segment display
@@ -277,12 +300,13 @@ void Reset_InputData(void)                  // clears all user-entry values and 
     PR2Prev = false;                        // resets the remembered PR2 state so edge detection starts cleanly
 }
 
-void Reset_To_Start(void)                   // returns the whole system to its normal starting condition
+void Reset_To_Start(void) 
 {
-    Reset_InputData();                      // first clears all counters and helper values from the previous cycle
-    SystemState = waitFor_PR1;              // then puts the state machine back to waiting for the first sensor input
-    SEG_Clear();                            // clears the display so no old digit remains visible to the user
-    RELAY_Off();                            // makes sure the buzzer output is off before a new attempt begins
+    Reset_InputData();
+    SystemState = waitFor_PR1;
+    SEG_Clear();
+    RELAY_Off();
+    CONF_BUZZER_Off();
 }
 
 /* =========================
@@ -375,6 +399,7 @@ void Process_System(void)                   // controls the overall behavior by 
              */
             if ((PR1_Count > 0U) && (PR1_DONE >= DIGIT_DONE_TIMEOUT_TICKS)) // checks whether the first digit entry is finished
             {
+                Beep_ConfirmTwice();
                 SystemState = STATE_WAIT_PR2; // once the first digit is done, move to waiting for the second digit
                 PR2_DONE = 0;                 // clears PR2 timeout counter so the second stage starts fresh
             }
@@ -385,6 +410,7 @@ void Process_System(void)                   // controls the overall behavior by 
         {
             if ((PR2_Count > 0U) && (PR2_DONE >= DIGIT_DONE_TIMEOUT_TICKS)) // checks whether the second digit entry is finished
             {
+                Beep_ConfirmTwice();
                 SystemState = STATE_CHECK_CODE; // both digits are ready, so move on to compare them with the secret code
             }
             break;                            // end of second-state processing
