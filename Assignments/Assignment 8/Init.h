@@ -40,6 +40,17 @@
 #define SEG_PORT_LAT    LATD              // sends  pattern to display
 #define SEG_PORT_TRIS   TRISD             
 
+/*Keypad ports */
+
+#define ROW1 LATCbits.LATC2
+#define ROW2 LATCbits.LATC3
+#define ROW3 LATCbits.LATC4
+#define ROW4 LATCbits.LATC5
+
+#define COL1 PORTCbits.RC6
+#define COL2 PORTCbits.RC7
+#define COL3 PORTBbits.RB3
+
 /* -----------------------------
    LOGIC OPTIONS
    --------------------------------------- */
@@ -54,8 +65,8 @@
   CONSTANTS
    ---------------------------------- */
 
-#define SECRET_CODE_PR1         3U          // 1st Secrete VALUE
-#define SECRET_CODE_PR2         2U          // 2nd secrete VALUE
+//#define SECRET_CODE_PR1         3U          // 1st Secrete VALUE
+//#define SECRET_CODE_PR2         2U          // 2nd secrete VALUE
 
 #define LOOP_DELAY_MS           10U         // loop delay unit
 #define DIGIT_DONE_TIMEOUT_MS   1500U       
@@ -76,7 +87,9 @@
 
 typedef enum
 {
-    waitFor_PR1 = 0,            // system waits for the first code entry PR1
+    SET_CODE_PR1 = 0,
+    SET_CODE_PR2,
+    waitFor_PR1,
     STATE_WAIT_PR2,             // system waitis for the second code entry PR2
     STATE_CHECK_CODE,           // system has both inputs and compares
     Correct_Secret_Code,        // the entered values matched the secret code
@@ -104,4 +117,6 @@ extern bool PR2Prev;                        // remembers previous PR2 state
 
 extern system_state_t SystemState;          // stores the current program state
 
+extern uint8_t Stored_PR1;
+extern uint8_t Stored_PR2;
 #endif

@@ -49,6 +49,8 @@ void CONF_BUZZER_On(void);
 void CONF_BUZZER_Off(void);
 void Beep_ConfirmTwice(void);
 void Beep_WrongConfirm(void);
+void Beep_Once(void);
 
+uint8_t Keypad_GetKey(void);
 
 #endif

@@ -3,8 +3,8 @@
 //---------------------------------
 // Author: Geovani Palomec
 // Date: April 15, 2026
-// Versions: 3
-//       V3: Rewrote entire code to ensure proper hardware operations
+// Versions: 4
+//       V4: Inplemented keypad to change code on the go
 // -----------------------------------------------------------
 // Setup:   PIC18F47K42 Curiosity Board
 // Compiler: xc8, V6.30
@@ -43,7 +43,7 @@
 //RA0      : System LED
 // RB1      : Relay module control
 // RD0-RD6  : 7-segment display outputs
-
+//------------------------------------------------------------------------
 
 #include "Config.h"
 #include "Init.h"
@@ -58,6 +58,9 @@ volatile uint8_t Check_Emergency_SW = 0;
 uint8_t PR1_Count = 0;                   // tracks how many times PR1's activate
 uint8_t PR2_Count = 0;                   // tracks how many times PR2's activate
 
+uint8_t Stored_PR1 = 0;
+uint8_t Stored_PR2 = 0;
+
 uint16_t PR1_DONE = 0;                   
 uint16_t PR2_DONE = 0;                   
 
@@ -67,7 +70,7 @@ uint8_t PR2_Debounce = 0;
 bool PR1Prev = false;                    
 bool PR2Prev = false;                  
 
-system_state_t SystemState = waitFor_PR1; 
+system_state_t SystemState = SET_CODE_PR1;
 
 /* ---------------------------------
    7-SEGMENT
@@ -129,7 +132,6 @@ void __interrupt(irq(IRQ_IOC), base(8)) ISR_IOC(void)
 void main(void)                             // program starts here after reset
 {
     SYSTEM_Initialize();                    
-    Reset_To_Start();                       // clears system values
     SYS_LED_On();                           // turns on the status LED 
 
     while (1)                               // runs forever
@@ -163,14 +165,21 @@ void SYSTEM_Initialize(void)
 void GPIO_Initialize(void) {
     ANSELA = 0x00;
     ANSELB = 0x00;
-    ANSELC = 0x00;
+    ANSELC = 0X00;
     ANSELD = 0x00;
 
     LATA = 0x00;
     LATB = 0x00;
-    LATC = 0x00;
     LATD = 0x00;
+    TRISCbits.TRISC2 = 0;
+    TRISCbits.TRISC3 = 0;
+    TRISCbits.TRISC4 = 0;
+    TRISCbits.TRISC5 = 0;
 
+    TRISCbits.TRISC6 = 1;
+    TRISCbits.TRISC7 = 1;
+    TRISBbits.TRISB3 = 1;
+    
     LATBbits.LATB2 = 0;
 
     SYS_LED_TRIS = 0;
@@ -180,8 +189,16 @@ void GPIO_Initialize(void) {
     RELAY_TRIS = 0;
     CONF_BUZZER_TRIS = 0;
     SEG_PORT_TRIS = 0x00;
-
+    
+    WPUCbits.WPUC6 = 1;
+    WPUCbits.WPUC7 = 1;
+    WPUBbits.WPUB3 = 1;
     WPUBbits.WPUB0 = 1;
+    
+    ROW1 = 1;
+    ROW2 = 1;
+    ROW3 = 1;
+    ROW4 = 1;
 }
 
 void Emergency_Initialize(void)             // configures interrupt behaviors
@@ -244,6 +261,12 @@ void Beep_ConfirmTwice(void)
     }
 }
 
+void Beep_Once(void) {
+    CONF_BUZZER_On();
+    DelayMs_Blocking(CONF_BEEP_ON_MS);
+    CONF_BUZZER_Off();
+}
+
 void Beep_WrongConfirm(void) 
 {
     CONF_BUZZER_On();
@@ -283,6 +306,87 @@ bool PR2_IsActive(void)                     // checks whether PR2 is triggered
     return (PR2_PORT == 0);                 //  true when PR2 reads LO
 }
 
+uint8_t Keypad_GetKey(void) {
+    ROW1 = 1;
+    ROW2 = 1;
+    ROW3 = 1;
+    ROW4 = 1;
+
+    ROW1 = 0;
+    ROW2 = 1;
+    ROW3 = 1;
+    ROW4 = 1;
+    __delay_ms(5);
+    if (COL1 == 0) {
+        while (COL1 == 0);
+        return 1;
+    }
+    if (COL2 == 0) {
+        while (COL2 == 0);
+        return 2;
+    }
+    if (COL3 == 0) {
+        while (COL3 == 0);
+        return 3;
+    }
+
+    ROW1 = 1;
+    ROW2 = 0;
+    ROW3 = 1;
+    ROW4 = 1;
+    __delay_ms(5);
+    if (COL1 == 0) {
+        while (COL1 == 0);
+        return 4;
+    }
+    if (COL2 == 0) {
+        while (COL2 == 0);
+        return 5;
+    }
+    if (COL3 == 0) {
+        while (COL3 == 0);
+        return 6;
+    }
+
+    ROW1 = 1;
+    ROW2 = 1;
+    ROW3 = 0;
+    ROW4 = 1;
+    __delay_ms(5);
+    if (COL1 == 0) {
+        while (COL1 == 0);
+        return 7;
+    }
+    if (COL2 == 0) {
+        while (COL2 == 0);
+        return 8;
+    }
+    if (COL3 == 0) {
+        while (COL3 == 0);
+        return 9;
+    }
+
+    ROW1 = 1;
+    ROW2 = 1;
+    ROW3 = 1;
+    ROW4 = 0;
+    __delay_ms(5);
+    if (COL1 == 0) {
+        while (COL1 == 0);
+        return 0xFF;
+    } // *
+    if (COL2 == 0) {
+        while (COL2 == 0);
+        return 0;
+    }
+    if (COL3 == 0) {
+        while (COL3 == 0);
+        return 0xFF;
+    } // #
+
+    return 0xFF;
+}
+
 /* ----------------------------------
    RESET
    -------------------------------- */
@@ -302,10 +406,11 @@ void Reset_InputData(void)                  // clears all entry values
     PR2Prev = false;                        // resets the remembered PR2 
 }
 
-void Reset_To_Start(void) 
-{
+void Reset_To_Start(void) {
     Reset_InputData();
-    SystemState = waitFor_PR1;
+    Stored_PR1 = 0;
+    Stored_PR2 = 0;
+    SystemState = SET_CODE_PR1;
     SEG_Clear();
     RELAY_Off();
     CONF_BUZZER_Off();
@@ -392,6 +497,31 @@ void Process_System(void)
 {
     switch (SystemState)                    
     {
+        case SET_CODE_PR1:
+        {
+            uint8_t key = Keypad_GetKey();
+            if ((key >= 1U) && (key <= 3U)) {
+                Stored_PR1 = key;
+                Seg7_Display(key);
+                Beep_Once();
+                SystemState = SET_CODE_PR2;
+            }
+            break;
+        }
+
+        case SET_CODE_PR2:
+        {
+            uint8_t key = Keypad_GetKey();
+            if ((key >= 1U) && (key <= 3U)) {
+                Stored_PR2 = key;
+                Seg7_Display(key);
+                Beep_Once();
+                SEG_Clear();
+                SystemState = waitFor_PR1;
+            }
+            break;
+        }
+        
         case waitFor_PR1:                  
         {
             /*
@@ -420,7 +550,7 @@ void Process_System(void)
 
         case STATE_CHECK_CODE:          // compare against stored secret code
         {
-            if ((PR1_Count == SECRET_CODE_PR1) && (PR2_Count == SECRET_CODE_PR2)) 
+           if ((PR1_Count == Stored_PR1) && (PR2_Count == Stored_PR2))
             {
                 SystemState = Correct_Secret_Code; // marks code as correct 
             }
