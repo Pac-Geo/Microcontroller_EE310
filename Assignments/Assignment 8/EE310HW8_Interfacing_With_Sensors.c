@@ -186,7 +186,6 @@ void GPIO_Initialize(void) {
 
 void Emergency_Initialize(void)             // configures interrupt behaviors
 {
-    WPUBbits.WPUB0 = 1;
     
     IOCBNbits.IOCBN0 = 1;   // interrupt when RB0 goes from HIGH to LOW
     IOCBPbits.IOCBP0 = 0;   // disables rising-edge interrupt
