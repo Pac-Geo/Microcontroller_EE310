@@ -64,7 +64,6 @@
 
 #include <xc.h> // must have this
 //#include "../../../../../Program Files/Microchip/xc8/v2.40/pic/include/proc/pic18f46k42.h"
-//#include "C:/Program Files/Microchip/xc8/v2.40/pic/include/proc/pic18f46k42.h"
 //#include "C:\Program Files\Microchip\xc8\v2.40\pic\include\proc\pic18f46k42"
 
 #define _XTAL_FREQ 4000000                 // Fosc  frequency for _delay()  library
